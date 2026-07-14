@@ -3,7 +3,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 
-// Database configuration
+// MySQL configuration
 const dbConfig = {
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
@@ -12,12 +12,12 @@ const dbConfig = {
   ssl: { rejectUnauthorized: false }
 };
 
-// Helper function to create database connection
+// Create DB connection
 async function createConnection() {
   return await mysql.createConnection(dbConfig);
 }
 
-// Helper function to verify JWT token
+// Verify JWT token
 function verifyToken(token) {
   return jwt.verify(token, process.env.JWT_SECRET);
 }
@@ -26,420 +26,250 @@ function verifyToken(token) {
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
-  'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS'
+  'Access-Control-Allow-Methods': 'OPTIONS,GET,POST,PUT,DELETE'
 };
 
+// Lambda handler
 exports.handler = async (event) => {
-  console.log('Event:', JSON.stringify(event, null, 2));
-
-  // Handle preflight OPTIONS requests
   if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers: corsHeaders,
-      body: ''
-    };
+    return { statusCode: 200, headers: corsHeaders, body: '' };
   }
 
   try {
-    const { httpMethod, path, body, headers } = event;
+    const { path, httpMethod, body, headers } = event;
     const parsedBody = body ? JSON.parse(body) : {};
-    
-    // Extract path parameters
-    const pathSegments = path.split('/').filter(segment => segment !== '');
-    const resource = pathSegments[0];
-    const action = pathSegments[1];
-    const id = pathSegments[2];
+    const segments = path.split('/').filter(Boolean);
+    const [resource, action, id] = segments;
 
-    console.log('Processing:', { httpMethod, resource, action, id });
-
+    let token = headers.Authorization?.replace('Bearer ', '');
     let response;
 
-    // Route requests
+    // AUTH routes
     if (resource === 'auth') {
       if (action === 'register' && httpMethod === 'POST') {
-        response = await handleRegister(parsedBody);
+        response = await register(parsedBody);
       } else if (action === 'login' && httpMethod === 'POST') {
-        response = await handleLogin(parsedBody);
-      }
-    } else if (resource === 'documents') {
-      const token = headers.Authorization?.replace('Bearer ', '');
-      
-      if (httpMethod === 'GET' && !action) {
-        response = await handleGetDocuments(token);
-      } else if (httpMethod === 'POST' && !action) {
-        response = await handleCreateDocument(parsedBody, token);
-      } else if (httpMethod === 'GET' && action) {
-        response = await handleGetDocument(action, token);
-      } else if (httpMethod === 'PUT' && action) {
-        response = await handleUpdateDocument(action, parsedBody, token);
-      } else if (httpMethod === 'DELETE' && action) {
-        response = await handleDeleteDocument(action, token);
+        response = await login(parsedBody);
       }
     }
 
-    if (!response) {
-      response = {
-        statusCode: 404,
-        body: JSON.stringify({ success: false, error: 'Route not found' })
-      };
+    // DOCUMENT routes
+    else if (resource === 'documents') {
+      if (!token) return unauthorized('Missing token');
+      if (httpMethod === 'GET' && !action) response = await getDocuments(token);
+      else if (httpMethod === 'POST' && !action) response = await createDocument(parsedBody, token);
+      else if (httpMethod === 'GET' && action === 'pending') response = await getPendingDocuments(token);
+      else if (httpMethod === 'GET' && action) response = await getDocumentById(action, token);
+      else if (httpMethod === 'PUT' && action) response = await updateDocument(action, parsedBody, token);
+      else if (httpMethod === 'DELETE' && action) response = await deleteDocument(action, token);
     }
 
-    return {
-      ...response,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    };
+    // DEPARTMENTS
+    else if (resource === 'departments' && httpMethod === 'GET') {
+      if (!token) return unauthorized();
+      response = await getDepartments(token);
+    }
 
-  } catch (error) {
-    console.error('Error:', error);
+    // STAFF
+    else if (resource === 'staff' && httpMethod === 'GET') {
+      if (!token) return unauthorized();
+      response = await getStaff(token);
+    }
+
+    else {
+      response = notFound();
+    }
+
+    return { ...response, headers: { ...corsHeaders, 'Content-Type': 'application/json' } };
+
+  } catch (err) {
+    console.error('Lambda Error:', err.message);
     return {
       statusCode: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        success: false, 
-        error: 'Internal server error',
-        details: error.message 
-      })
+      body: JSON.stringify({ success: false, error: 'Internal server error', details: err.message })
     };
   }
 };
 
-// Auth handlers
-async function handleRegister({ email, password, firstName, lastName, role }) {
-  const connection = await createConnection();
-  
+async function register({ email, password, firstName, lastName, role, department, organization }) {
+  if (!email || !password || !firstName || !lastName) return badRequest('Missing fields');
+  const conn = await createConnection();
   try {
-    // Check if user already exists
-    const [existingUsers] = await connection.execute(
-      'SELECT id FROM users WHERE email = ?',
-      [email]
-    );
+    const [existing] = await conn.execute('SELECT id FROM users WHERE email = ?', [email]);
+    if (existing.length) return badRequest('User already exists');
 
-    if (existingUsers.length > 0) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ success: false, error: 'User already exists' })
-      };
-    }
-
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
     const userId = uuidv4();
-
-    // Insert new user
-    await connection.execute(
-      'INSERT INTO users (id, email, password_hash, first_name, last_name, role) VALUES (?, ?, ?, ?, ?, ?)',
-      [userId, email, hashedPassword, firstName, lastName, role || 'user']
+    const hash = await bcrypt.hash(password, 10);
+    await conn.execute(
+      `INSERT INTO users (id, email, password_hash, first_name, last_name, role, department, organization)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [userId, email, hash, firstName, lastName, role || 'user', department || null, organization || null]
     );
 
-    return {
-      statusCode: 201,
-      body: JSON.stringify({ 
-        success: true, 
-        message: 'User registered successfully',
-        data: { id: userId, email, firstName, lastName, role: role || 'user' }
-      })
-    };
-
+    return created({ userId, email, role: role || 'user' });
   } finally {
-    await connection.end();
+    await conn.end();
   }
 }
 
-async function handleLogin({ email, password }) {
-  const connection = await createConnection();
-  
+async function login({ email, password }) {
+  if (!email || !password) return badRequest('Missing credentials');
+  const conn = await createConnection();
   try {
-    // Get user
-    const [users] = await connection.execute(
-      'SELECT id, email, password_hash, first_name, last_name, role FROM users WHERE email = ?',
-      [email]
-    );
-
-    if (users.length === 0) {
-      return {
-        statusCode: 401,
-        body: JSON.stringify({ success: false, error: 'Invalid credentials' })
-      };
-    }
-
+    const [users] = await conn.execute('SELECT * FROM users WHERE email = ?', [email]);
+    if (!users.length) return unauthorized('Invalid credentials');
     const user = users[0];
 
-    // Verify password
-    const isValidPassword = await bcrypt.compare(password, user.password_hash);
-    
-    if (!isValidPassword) {
-      return {
-        statusCode: 401,
-        body: JSON.stringify({ success: false, error: 'Invalid credentials' })
-      };
-    }
+    const match = await bcrypt.compare(password, user.password_hash);
+    if (!match) return unauthorized('Invalid credentials');
 
-    // Generate JWT token
     const token = jwt.sign(
       { userId: user.id, email: user.email, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: '24h' }
     );
 
-    return {
-      statusCode: 200,
-      body: JSON.stringify({ 
-        success: true,
-        data: {
-          user: {
-            id: user.id,
-            email: user.email,
-            firstName: user.first_name,
-            lastName: user.last_name,
-            role: user.role
-          },
-          token
-        }
-      })
-    };
-
-  } finally {
-    await connection.end();
-  }
-}
-
-// Document handlers
-async function handleGetDocuments(token) {
-  if (!token) {
-    return {
-      statusCode: 401,
-      body: JSON.stringify({ success: false, error: 'No token provided' })
-    };
-  }
-
-  try {
-    const decoded = verifyToken(token);
-    const connection = await createConnection();
-    
-    try {
-      const [documents] = await connection.execute(`
-        SELECT d.*, u.email as uploaded_by_email
-        FROM documents d
-        LEFT JOIN users u ON d.uploaded_by = u.id
-        ORDER BY d.created_at DESC
-      `);
-
-      return {
-        statusCode: 200,
-        body: JSON.stringify({ 
-          success: true,
-          data: documents.map(doc => ({
-            id: doc.id,
-            name: doc.name,
-            content: doc.content,
-            type: doc.type,
-            clientName: doc.client_name,
-            status: doc.status,
-            priority: doc.priority,
-            assignedDate: doc.assigned_date,
-            deadline: doc.deadline,
-            department: doc.department,
-            currentVersion: doc.current_version,
-            uploadedBy: doc.uploaded_by_email,
-            lastModified: doc.updated_at
-          }))
-        })
-      };
-
-    } finally {
-      await connection.end();
-    }
-
-  } catch (error) {
-    return {
-      statusCode: 401,
-      body: JSON.stringify({ success: false, error: 'Invalid token' })
-    };
-  }
-}
-
-async function handleCreateDocument(documentData, token) {
-  if (!token) {
-    return {
-      statusCode: 401,
-      body: JSON.stringify({ success: false, error: 'No token provided' })
-    };
-  }
-
-  try {
-    const decoded = verifyToken(token);
-    const connection = await createConnection();
-    
-    try {
-      const documentId = uuidv4();
-      const { name, content, clientName, department, priority, deadline } = documentData;
-
-      await connection.execute(`
-        INSERT INTO documents (
-          id, name, content, type, client_name, status, priority,
-          assigned_date, deadline, department, uploaded_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [
-        documentId, name, content, 'pdf', clientName, 'assigned', priority,
-        new Date().toISOString().split('T')[0], deadline, department, decoded.userId
-      ]);
-
-      return {
-        statusCode: 201,
-        body: JSON.stringify({ 
-          success: true,
-          data: { id: documentId, ...documentData }
-        })
-      };
-
-    } finally {
-      await connection.end();
-    }
-
-  } catch (error) {
-    return {
-      statusCode: 401,
-      body: JSON.stringify({ success: false, error: 'Invalid token' })
-    };
-  }
-}
-
-async function handleUpdateDocument(documentId, updates, token) {
-  if (!token) {
-    return {
-      statusCode: 401,
-      body: JSON.stringify({ success: false, error: 'No token provided' })
-    };
-  }
-
-  try {
-    const decoded = verifyToken(token);
-    const connection = await createConnection();
-    
-    try {
-      const { name, content, status, priority } = updates;
-      
-      await connection.execute(`
-        UPDATE documents 
-        SET name = ?, content = ?, status = ?, priority = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `, [name, content, status, priority, documentId]);
-
-      return {
-        statusCode: 200,
-        body: JSON.stringify({ 
-          success: true,
-          message: 'Document updated successfully'
-        })
-      };
-
-    } finally {
-      await connection.end();
-    }
-
-  } catch (error) {
-    return {
-      statusCode: 401,
-      body: JSON.stringify({ success: false, error: 'Invalid token' })
-    };
-  }
-}
-
-async function handleDeleteDocument(documentId, token) {
-  if (!token) {
-    return {
-      statusCode: 401,
-      body: JSON.stringify({ success: false, error: 'No token provided' })
-    };
-  }
-
-  try {
-    const decoded = verifyToken(token);
-    const connection = await createConnection();
-    
-    try {
-      await connection.execute('DELETE FROM documents WHERE id = ?', [documentId]);
-
-      return {
-        statusCode: 200,
-        body: JSON.stringify({ 
-          success: true,
-          message: 'Document deleted successfully'
-        })
-      };
-
-    } finally {
-      await connection.end();
-    }
-
-  } catch (error) {
-    return {
-      statusCode: 401,
-      body: JSON.stringify({ success: false, error: 'Invalid token' })
-    };
-  }
-}
-
-async function handleGetDocument(documentId, token) {
-  if (!token) {
-    return {
-      statusCode: 401,
-      body: JSON.stringify({ success: false, error: 'No token provided' })
-    };
-  }
-
-  try {
-    const decoded = verifyToken(token);
-    const connection = await createConnection();
-    
-    try {
-      const [documents] = await connection.execute(`
-        SELECT d.*, u.email as uploaded_by_email
-        FROM documents d
-        LEFT JOIN users u ON d.uploaded_by = u.id
-        WHERE d.id = ?
-      `, [documentId]);
-
-      if (documents.length === 0) {
-        return {
-          statusCode: 404,
-          body: JSON.stringify({ success: false, error: 'Document not found' })
-        };
+    return ok({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        role: user.role
       }
-
-      const doc = documents[0];
-
-      return {
-        statusCode: 200,
-        body: JSON.stringify({ 
-          success: true,
-          data: {
-            id: doc.id,
-            name: doc.name,
-            content: doc.content,
-            type: doc.type,
-            clientName: doc.client_name,
-            status: doc.status,
-            priority: doc.priority,
-            assignedDate: doc.assigned_date,
-            deadline: doc.deadline,
-            department: doc.department,
-            currentVersion: doc.current_version,
-            uploadedBy: doc.uploaded_by_email,
-            lastModified: doc.updated_at
-          }
-        })
-      };
-
-    } finally {
-      await connection.end();
-    }
-
-  } catch (error) {
-    return {
-      statusCode: 401,
-      body: JSON.stringify({ success: false, error: 'Invalid token' })
-    };
+    });
+  } finally {
+    await conn.end();
   }
 }
+
+// ──────────── DOCUMENT HANDLERS ────────────
+
+async function getDocuments(token) {
+  verifyToken(token);
+  const conn = await createConnection();
+  try {
+    const [docs] = await conn.execute(`
+      SELECT d.*, u.email AS uploaded_by_email
+      FROM documents d
+      LEFT JOIN users u ON d.uploaded_by = u.id
+      ORDER BY d.created_at DESC
+    `);
+    return ok({ documents: docs });
+  } finally {
+    await conn.end();
+  }
+}
+
+async function createDocument(data, token) {
+  const decoded = verifyToken(token);
+  const { name, content, clientName, department, priority, deadline } = data;
+  if (!name || !content || !clientName || !department || !priority || !deadline) {
+    return badRequest('Missing fields');
+  }
+
+  const id = uuidv4();
+  const conn = await createConnection();
+  try {
+    await conn.execute(
+      `INSERT INTO documents (id, name, content, type, client_name, status, priority,
+        assigned_date, deadline, department, uploaded_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id, name, content, 'pdf', clientName, 'assigned', priority,
+        new Date().toISOString().split('T')[0], deadline, department, decoded.userId
+      ]
+    );
+    return created({ id });
+  } finally {
+    await conn.end();
+  }
+}
+
+async function getDocumentById(id, token) {
+  verifyToken(token);
+  const conn = await createConnection();
+  try {
+    const [docs] = await conn.execute(`SELECT * FROM documents WHERE id = ?`, [id]);
+    if (!docs.length) return notFound('Document not found');
+    return ok(docs[0]);
+  } finally {
+    await conn.end();
+  }
+}
+
+async function updateDocument(id, updates, token) {
+  verifyToken(token);
+  const { name, content, status, priority } = updates;
+  const conn = await createConnection();
+  try {
+    await conn.execute(`
+      UPDATE documents SET name = ?, content = ?, status = ?, priority = ?, updated_at = NOW()
+      WHERE id = ?
+    `, [name, content, status, priority, id]);
+    return ok({ message: 'Document updated' });
+  } finally {
+    await conn.end();
+  }
+}
+
+async function deleteDocument(id, token) {
+  verifyToken(token);
+  const conn = await createConnection();
+  try {
+    await conn.execute('DELETE FROM documents WHERE id = ?', [id]);
+    return ok({ message: 'Document deleted' });
+  } finally {
+    await conn.end();
+  }
+}
+
+async function getPendingDocuments(token) {
+  verifyToken(token);
+  const conn = await createConnection();
+  try {
+    const [docs] = await conn.execute(`
+      SELECT * FROM documents WHERE status != 'completed'
+      ORDER BY created_at DESC
+    `);
+    return ok({ pendingDocuments: docs });
+  } finally {
+    await conn.end();
+  }
+}
+
+// ──────────── STAFF & DEPARTMENTS ────────────
+
+async function getDepartments(token) {
+  verifyToken(token);
+  const conn = await createConnection();
+  try {
+    const [rows] = await conn.execute(`SELECT DISTINCT department FROM documents WHERE department IS NOT NULL`);
+    return ok({ departments: rows.map(r => r.department) });
+  } finally {
+    await conn.end();
+  }
+}
+
+async function getStaff(token) {
+  verifyToken(token);
+  const conn = await createConnection();
+  try {
+    const [staff] = await conn.execute(`
+      SELECT first_name, last_name FROM users WHERE role = 'processing-staff'
+    `);
+    return ok({ staff: staff.map(s => `${s.first_name} ${s.last_name}`) });
+  } finally {
+    await conn.end();
+  }
+}
+
+// ──────────── UTIL RESPONSES ────────────
+
+const ok = data => ({ statusCode: 200, body: JSON.stringify({ success: true, data }) });
+const created = data => ({ statusCode: 201, body: JSON.stringify({ success: true, data }) });
+const badRequest = msg => ({ statusCode: 400, body: JSON.stringify({ success: false, error: msg }) });
+const unauthorized = msg => ({ statusCode: 401, body: JSON.stringify({ success: false, error: msg }) });
+const notFound = msg => ({ statusCode: 404, body: JSON.stringify({ success: false, error: msg }) });

@@ -1,0 +1,305 @@
+API ENDPOINTS SPECIFICATION FOR DOCUTRACK PRO SYSTEM
+Base URL Configuration
+
+Base URL: https://your-api-gateway-id.execute-api.us-east-1.amazonaws.com/prod
+
+1. AUTHENTICATION ENDPOINTS
+1.1 User Registration
+
+    Method: POST
+    Path: /auth/register
+    Description: Register a new user in the system
+    Request Body:
+
+{
+  "email": "string",
+  "password": "string", 
+  "firstName": "string",
+  "lastName": "string",
+  "role": "user | processing-staff | deputy-director",
+  "organization": "string (optional)",
+  "department": "string (optional)"
+}
+
+    Response:
+        Success (201): User registration confirmation
+        Error (400): User already exists or validation error
+
+1.2 User Login
+
+    Method: POST
+    Path: /auth/login
+    Description: Authenticate user and return JWT token
+    Request Body:
+
+{
+  "email": "string",
+  "password": "string"
+}
+
+    Response:
+        Success (200): User data and JWT token
+        Error (401): Invalid credentials
+
+2. DOCUMENT MANAGEMENT ENDPOINTS
+2.1 Get All Documents
+
+    Method: GET
+    Path: /documents
+    Description: Retrieve all documents accessible to the authenticated user
+    Headers: Authorization: Bearer <token>
+    Response:
+        Success (200): Array of document objects
+        Error (401): Unauthorized access
+
+2.2 Create New Document
+
+    Method: POST
+    Path: /documents
+    Description: Upload and create a new document
+    Headers: Authorization: Bearer <token>
+    Request Body:
+
+{
+  "name": "string",
+  "content": "string",
+  "clientName": "string",
+  "department": "string",
+  "priority": "low | medium | high",
+  "deadline": "YYYY-MM-DD"
+}
+
+    Response:
+        Success (201): Created document details
+        Error (400): Validation error
+
+2.3 Get Specific Document
+
+    Method: GET
+    Path: /documents/{documentId}
+    Description: Retrieve details of a specific document
+    Headers: Authorization: Bearer <token>
+    Response:
+        Success (200): Document details
+        Error (404): Document not found
+
+2.4 Update Document
+
+    Method: PUT
+    Path: /documents/{documentId}
+    Description: Update document information and status
+    Headers: Authorization: Bearer <token>
+    Request Body:
+
+{
+  "name": "string (optional)",
+  "content": "string (optional)",
+  "status": "assigned | in-progress | completed",
+  "priority": "low | medium | high"
+}
+
+    Response:
+        Success (200): Update confirmation
+        Error (404): Document not found
+
+2.5 Delete Document
+
+    Method: DELETE
+    Path: /documents/{documentId}
+    Description: Remove document from the system
+    Headers: Authorization: Bearer <token>
+    Response:
+        Success (200): Deletion confirmation
+        Error (404): Document not found
+
+3. NOTIFICATION ENDPOINTS
+3.1 Get User Notifications
+
+    Method: GET
+    Path: /notifications
+    Query Parameters: userId=string
+    Description: Retrieve notifications for a specific user
+    Headers: Authorization: Bearer <token>
+    Response:
+        Success (200): Array of notification objects
+        Error (401): Unauthorized access
+
+3.2 Create Notification
+
+    Method: POST
+    Path: /notifications
+    Description: Create a new notification
+    Headers: Authorization: Bearer <token>
+    Request Body:
+
+{
+  "type": "document_processed | document_edited | document_approved | document_rejected | document_assigned | deadline_reminder",
+  "title": "string",
+  "message": "string",
+  "documentId": "string",
+  "documentName": "string",
+  "fromUser": "string",
+  "toUser": "string"
+}
+
+    Response:
+        Success (201): Notification created
+        Error (400): Validation error
+
+3.3 Mark Notification as Read
+
+    Method: PUT
+    Path: /notifications/{notificationId}
+    Description: Mark a specific notification as read
+    Headers: Authorization: Bearer <token>
+    Response:
+        Success (200): Update confirmation
+        Error (404): Notification not found
+
+4. REPORTING ENDPOINTS
+4.1 Generate Analytics Report
+
+    Method: GET
+    Path: /reports
+    Query Parameters: type=analytics
+    Description: Generate comprehensive analytics report
+    Headers: Authorization: Bearer <token>
+    Response:
+        Success (200): Report data or PDF URL
+        Error (401): Unauthorized access
+
+4.2 Generate Processing Report
+
+    Method: GET
+    Path: /reports
+    Query Parameters: type=processing
+    Description: Generate staff processing performance report
+    Headers: Authorization: Bearer <token>
+    Response:
+        Success (200): Report data or PDF URL
+        Error (401): Unauthorized access
+
+4.3 Generate Custom Report
+
+    Method: POST
+    Path: /reports/custom
+    Description: Generate custom report based on parameters
+    Headers: Authorization: Bearer <token>
+    Request Body:
+
+{
+  "reportType": "string",
+  "dateRange": {
+    "startDate": "YYYY-MM-DD",
+    "endDate": "YYYY-MM-DD"
+  },
+  "filters": {
+    "department": "string (optional)",
+    "status": "string (optional)",
+    "priority": "string (optional)"
+  }
+}
+
+    Response:
+        Success (200): Custom report data
+        Error (400): Invalid parameters
+
+5. SYSTEM HEALTH AND MONITORING ENDPOINTS
+5.1 Health Check
+
+    Method: GET
+    Path: /health
+    Description: Check system health and connectivity
+    Response:
+        Success (200): System status OK
+        Error (503): System unavailable
+
+5.2 System Statistics
+
+    Method: GET
+    Path: /system/stats
+    Description: Get system usage statistics
+    Headers: Authorization: Bearer <token> (Admin only)
+    Response:
+        Success (200): System statistics
+        Error (403): Insufficient permissions
+
+6. USER MANAGEMENT ENDPOINTS (Admin/Deputy Director)
+6.1 Get All Users
+
+    Method: GET
+    Path: /users
+    Description: Retrieve all system users (Admin only)
+    Headers: Authorization: Bearer <token>
+    Response:
+        Success (200): Array of user objects
+        Error (403): Insufficient permissions
+
+6.2 Update User Role
+
+    Method: PUT
+    Path: /users/{userId}/role
+    Description: Update user role (Admin only)
+    Headers: Authorization: Bearer <token>
+    Request Body:
+
+{
+  "role": "user | processing-staff | deputy-director"
+}
+
+    Response:
+        Success (200): Update confirmation
+        Error (403): Insufficient permissions
+
+7. WORKFLOW MANAGEMENT ENDPOINTS
+7.1 Get Workflow Status
+
+    Method: GET
+    Path: /workflow/{documentId}
+    Description: Get current workflow status for a document
+    Headers: Authorization: Bearer <token>
+    Response:
+        Success (200): Workflow status details
+        Error (404): Document not found
+
+7.2 Advance Workflow
+
+    Method: POST
+    Path: /workflow/{documentId}/advance
+    Description: Move document to next workflow stage
+    Headers: Authorization: Bearer <token>
+    Request Body:
+
+{
+  "action": "approve | reject | return",
+  "comments": "string (optional)"
+}
+
+    Response:
+        Success (200): Workflow updated
+        Error (400): Invalid workflow action
+
+8. ERROR HANDLING
+
+All endpoints return standardized error responses:
+
+{
+  "success": false,
+  "error": "Error message",
+  "code": "ERROR_CODE",
+  "timestamp": "ISO 8601 timestamp"
+}
+
+9. AUTHENTICATION REQUIREMENTS
+
+    All endpoints except /auth/register, /auth/login, and /health require JWT authentication
+    JWT tokens should be included in the Authorization header as Bearer <token>
+    Tokens expire after 24 hours and require renewal
+    Role-based access control is enforced on protected endpoints
+
+10. RATE LIMITING
+
+    Authentication endpoints: 5 requests per minute per IP
+    Document operations: 100 requests per minute per user
+    Report generation: 10 requests per hour per user
+    General API calls: 1000 requests per hour per user

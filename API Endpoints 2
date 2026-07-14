@@ -1,0 +1,382 @@
+COMPLETE API ENDPOINTS SPECIFICATION - USER JOURNEY FLOW
+1. LANDING PAGE TO AUTHENTICATION FLOW
+1.1 System Health Check (Landing Page)
+
+    Method: GET
+    Path: /health
+    Description: Initial system connectivity test when landing page loads
+    Authentication: None required
+    Response: System status and availability
+
+1.2 User Registration (Signup Flow)
+
+    Method: POST
+    Path: /auth/register
+    Description: New user account creation from signup form
+    Request Body:
+
+{
+  "email": "string",
+  "password": "string",
+  "firstName": "string",
+  "lastName": "string",
+  "role": "user | processing-staff | deputy-director",
+  "organization": "string (optional)",
+  "department": "string (optional)"
+}
+
+    Response: Registration confirmation or validation errors
+
+1.3 User Authentication (Login Flow)
+
+    Method: POST
+    Path: /auth/login
+    Description: User login from login form
+    Request Body:
+
+{
+  "email": "string",
+  "password": "string"
+}
+
+    Response: JWT token and user profile data for dashboard routing
+
+2. USER/CLIENT DASHBOARD ENDPOINTS
+2.1 Load User Documents
+
+    Method: GET
+    Path: /documents
+    Query Parameters: clientName={userEmail} (filtered on backend)
+    Description: Retrieve all documents for logged-in client
+    Headers: Authorization: Bearer <token>
+    Used By: UserDashboard component on mount
+
+2.2 Submit New Document
+
+    Method: POST
+    Path: /documents
+    Description: Upload new document from DocumentUpload component
+    Headers: Authorization: Bearer <token>
+    Request Body:
+
+{
+  "name": "string",
+  "content": "string",
+  "clientName": "string",
+  "department": "string",
+  "priority": "low | medium | high",
+  "deadline": "YYYY-MM-DD"
+}
+
+2.3 Get Document Status
+
+    Method: GET
+    Path: /documents/{documentId}
+    Description: Track specific document progress
+    Headers: Authorization: Bearer <token>
+    Used By: Document tracking in user dashboard
+
+2.4 Get User Notifications
+
+    Method: GET
+    Path: /notifications
+    Query Parameters: userId={userId}
+    Description: Load notifications for document updates
+    Headers: Authorization: Bearer <token>
+
+3. PROCESSING STAFF DASHBOARD ENDPOINTS
+3.1 Load All Assigned Documents
+
+    Method: GET
+    Path: /documents
+    Description: Retrieve all documents for processing (filtered by role)
+    Headers: Authorization: Bearer <token>
+    Used By: ProcessingStaffDashboard component
+
+3.2 Update Document Status
+
+    Method: PUT
+    Path: /documents/{documentId}
+    Description: Change document status during processing
+    Headers: Authorization: Bearer <token>
+    Request Body:
+
+{
+  "status": "assigned | in-progress | completed",
+  "priority": "low | medium | high",
+  "content": "string (optional)"
+}
+
+3.3 Document Assignment
+
+    Method: POST
+    Path: /documents/{documentId}/assign
+    Description: Self-assign or reassign documents
+    Headers: Authorization: Bearer <token>
+    Request Body:
+
+{
+  "assignedTo": "string",
+  "assignedBy": "string"
+}
+
+3.4 Document Editor Operations
+
+    Method: PUT
+    Path: /documents/{documentId}/content
+    Description: Edit document content in DocumentEditor
+    Headers: Authorization: Bearer <token>
+    Request Body:
+
+{
+  "content": "string",
+  "version": "number"
+}
+
+3.5 Document Version Management
+
+    Method: GET
+    Path: /documents/{documentId}/versions
+    Description: Get document version history
+    Headers: Authorization: Bearer <token>
+
+3.6 Send Notifications
+
+    Method: POST
+    Path: /notifications
+    Description: Notify clients of status changes
+    Headers: Authorization: Bearer <token>
+    Request Body:
+
+{
+  "type": "document_processed | document_edited",
+  "title": "string",
+  "message": "string",
+  "documentId": "string",
+  "toUser": "string"
+}
+
+4. DEPUTY DIRECTOR DASHBOARD ENDPOINTS
+4.1 Load Analytics Data
+
+    Method: GET
+    Path: /reports/analytics
+    Description: Dashboard analytics for overview cards
+    Headers: Authorization: Bearer <token>
+    Used By: DeputyDirectorDashboard analytics section
+
+4.2 Generate Performance Reports
+
+    Method: GET
+    Path: /reports
+    Query Parameters: type=processing&dateRange=lastMonth
+    Description: Staff performance and processing reports
+    Headers: Authorization: Bearer <token>
+
+4.3 Document Categories Overview
+
+    Method: GET
+    Path: /documents/categories
+    Description: Document counts by status for DocumentCategories
+    Headers: Authorization: Bearer <token>
+    Used By: DocumentCategories component
+
+4.4 Download Reports
+
+    Method: GET
+    Path: /reports/download
+    Query Parameters: type=pdf&reportId={id}
+    Description: Download generated reports
+    Headers: Authorization: Bearer <token>
+
+4.5 User Management
+
+    Method: GET
+    Path: /users
+    Description: Get all system users for management
+    Headers: Authorization: Bearer <token> (Deputy Director only)
+
+4.6 Update User Roles
+
+    Method: PUT
+    Path: /users/{userId}/role
+    Description: Change user permissions
+    Headers: Authorization: Bearer <token> (Deputy Director only)
+    Request Body:
+
+{
+  "role": "user | processing-staff | deputy-director"
+}
+
+5. NOTIFICATION CENTER ENDPOINTS
+5.1 Get All Notifications
+
+    Method: GET
+    Path: /notifications/{userId}
+    Description: Load notification history for NotificationCenter
+    Headers: Authorization: Bearer <token>
+
+5.2 Mark Notifications as Read
+
+    Method: PUT
+    Path: /notifications/{notificationId}/read
+    Description: Update notification read status
+    Headers: Authorization: Bearer <token>
+
+5.3 Real-time Notification Stream
+
+    Method: GET (WebSocket upgrade)
+    Path: /notifications/stream
+    Description: Live notification updates
+    Headers: Authorization: Bearer <token>
+
+6. DOCUMENT MANAGEMENT WORKFLOW ENDPOINTS
+6.1 Document Lifecycle Management
+
+    Method: POST
+    Path: /workflow/{documentId}/advance
+    Description: Move document through workflow stages
+    Headers: Authorization: Bearer <token>
+    Request Body:
+
+{
+  "action": "approve | reject | return | complete",
+  "comments": "string",
+  "nextStage": "string"
+}
+
+6.2 Document Download
+
+    Method: GET
+    Path: /documents/{documentId}/download
+    Query Parameters: format=pdf|docx
+    Description: Download processed documents
+    Headers: Authorization: Bearer <token>
+    Used By: DocumentCategories download buttons
+
+6.3 Document Delete
+
+    Method: DELETE
+    Path: /documents/{documentId}
+    Description: Remove documents (completed only)
+    Headers: Authorization: Bearer <token>
+    Used By: DocumentCategories delete functionality
+
+7. SEARCH AND FILTERING ENDPOINTS
+7.1 Document Search
+
+    Method: GET
+    Path: /documents/search
+    Query Parameters: q={searchTerm}&status={status}&department={dept}
+    Description: Search documents across all dashboards
+    Headers: Authorization: Bearer <token>
+
+7.2 Advanced Filtering
+
+    Method: POST
+    Path: /documents/filter
+    Description: Complex document filtering
+    Headers: Authorization: Bearer <token>
+    Request Body:
+
+{
+  "filters": {
+    "status": "array",
+    "priority": "array", 
+    "dateRange": "object",
+    "department": "array"
+  }
+}
+
+8. REPORTING AND ANALYTICS ENDPOINTS
+8.1 Dashboard Statistics
+
+    Method: GET
+    Path: /analytics/dashboard/{userRole}
+    Description: Role-specific dashboard metrics
+    Headers: Authorization: Bearer <token>
+
+8.2 Processing Analytics
+
+    Method: GET
+    Path: /analytics/processing
+    Query Parameters: period=week|month|quarter
+    Description: Processing time and efficiency metrics
+    Headers: Authorization: Bearer <token>
+
+8.3 Custom Report Generation
+
+    Method: POST
+    Path: /reports/generate
+    Description: Create custom reports with parameters
+    Headers: Authorization: Bearer <token>
+    Request Body:
+
+{
+  "reportType": "string",
+  "parameters": "object",
+  "format": "pdf | excel | json"
+}
+
+9. SYSTEM ADMINISTRATION ENDPOINTS
+9.1 System Configuration
+
+    Method: GET
+    Path: /admin/config
+    Description: Get system settings
+    Headers: Authorization: Bearer <token> (Admin only)
+
+9.2 Audit Logs
+
+    Method: GET
+    Path: /admin/audit
+    Query Parameters: startDate={date}&endDate={date}
+    Description: System activity audit trail
+    Headers: Authorization: Bearer <token> (Admin only)
+
+9.3 Free Tier Monitoring
+
+    Method: GET
+    Path: /admin/usage
+    Description: AWS free tier usage monitoring
+    Headers: Authorization: Bearer <token> (Admin only)
+
+10. ERROR HANDLING AND LOGGING
+10.1 Error Reporting
+
+    Method: POST
+    Path: /errors/report
+    Description: Client-side error reporting
+    Request Body:
+
+{
+  "error": "string",
+  "stack": "string",
+  "userAgent": "string",
+  "url": "string"
+}
+
+10.2 Performance Metrics
+
+    Method: POST
+    Path: /metrics/performance
+    Description: Client performance monitoring
+    Request Body:
+
+{
+  "page": "string",
+  "loadTime": "number",
+  "userRole": "string"
+}
+
+11. USER JOURNEY ENDPOINT FLOW SUMMARY
+
+Landing Page → Registration/Login: /health → /auth/register OR /auth/login
+
+User Dashboard Flow: /auth/login → /documents → /notifications → /documents/{id}
+
+Processing Staff Flow: /auth/login → /documents → /documents/{id} → /documents/{id}/content → /notifications
+
+Deputy Director Flow: /auth/login → /reports/analytics → /documents/categories → /users → /reports/generate
+
+Document Lifecycle: /documents (POST) → /workflow/{id}/advance → /notifications → /documents/{id}/download
