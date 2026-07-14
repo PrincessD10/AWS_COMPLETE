@@ -1,0 +1,55 @@
+{
+  "testUsers": [
+    {
+      "email": "john.client@example.com",
+      "password": "TestPass123!",
+      "firstName": "John",
+      "lastName": "Client",
+      "role": "user"
+    },
+    {
+      "email": "sarah.processor@company.com",
+      "password": "TestPass123!",
+      "firstName": "Sarah",
+      "lastName": "Processor",
+      "role": "processing-staff",
+      "organization": "DocuTrack Corp",
+      "department": "Legal"
+    },
+    {
+      "email": "mike.director@company.com",
+      "password": "TestPass123!",
+      "firstName": "Mike",
+      "lastName": "Director",
+      "role": "deputy-director",
+      "organization": "DocuTrack Corp"
+    }
+  ],
+  "testDocuments": [
+    {
+      "name": "Contract_Review_Q1_2024.pdf",
+      "content": "Sample contract content for Q1 2024 review...",
+      "clientName": "ABC Corporation",
+      "department": "Legal",
+      "priority": "high",
+      "deadline": "2024-02-15"
+    },
+    {
+      "name": "Insurance_Claim_12345.docx",
+      "content": "Insurance claim documentation and supporting materials...",
+      "clientName": "John Smith",
+      "department": "Insurance",
+      "priority": "medium",
+      "deadline": "2024-02-20"
+    }
+  ],
+  "apiEndpoints": {
+    "healthCheck": "/health",
+    "register": "/auth/register",
+    "login": "/auth/login",
+    "getDocuments": "/documents",
+    "createDocument": "/documents",
+    "updateDocument": "/documents/{id}",
+    "deleteDocument": "/documents/{id}"
+  }
+}
